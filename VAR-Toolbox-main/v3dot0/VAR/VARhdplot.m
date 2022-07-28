@@ -79,7 +79,7 @@ for ii=pick:nvars
         set(gcf, 'Color', 'w');
         export_fig(FigName,'-pdf','-painters')
     else
-        legend([H(1,:) h],[vsnames {'Data'}])
+        legend([H(1,:) h],[snames {'Data'}])
         print('-dpdf','-r100',FigName);
     end
     clf('reset');

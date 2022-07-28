@@ -1,5 +1,8 @@
+clear all; clear session; close all; clc
+warning off all
+
 %%%% DATA LOADING %%%%
-data = readtable("Gas Data processed.xlsx");
+data = readtable("export_normal_data.xlsx");
 
 display(data.months);
 %%%% DATA CLEANING %%%%
@@ -17,22 +20,27 @@ dates= datetime(data.months,"InputFormat","MMM yy");
 
 months = data.months;
 price_gas = data.price_gas;
-brent_usd = data.price_brent_usd;
-brent_gbp = data.price_brent_gbp;
-OI = data.open_interest_gas;
-temp = data.temperature;
+price_brent_gbp = data.price_brent_gbp;
+%coal = data.coal_gbp;
+%OI = data.open_interest_gas;
+%temp = data.temperature;
+temp_deviation = data.temp_deviation;
+%churn = data.churn;
+%EUR = data.eurgbp;
+%USD = data.gbpusd;
 lng = data.lng;
 storage = data.storage;
-euas = data.euas;
-supply = data.supply;
+%euas = data.euas;
+%supply = data.supply;
 
-X= [price_gas brent_usd OI temp lng storage supply];
+Xbis= [temp_deviation storage lng price_brent_gbp price_gas];
 
-data.months=[];
-data.demand=[];
+%data.months=[];
+nobs = size(data,1);
+%data.demand=[];
 
 % Select 'true' or 'false' if you want to plot data
-plot_data = true;
+plot_data = false;
 if plot_data
     plot(dates,data.Variables);
     legend(data.Properties.VariableNames);
@@ -42,53 +50,70 @@ end
 % Add VAR toolbox to the MATLAB path (including all subfolders)
 %folder = fileparts(which('VAR-Toolbox-main')); 
 
-addpath(genpath('VAR_toolbox'));
+addpath(genpath('VAR-Toolbox-main'));
 
 % OR USE DYNARE ??
 
+Xvnames = {'temp_deviation','storage','lng','price_brent_gbp','price_gas'};
+Xvnames_long = {'TempDev','Storage','LNG','Brent','Gas'};
+Xnvar = length(Xvnames);
+
+
+X = nan(nobs,Xnvar);
+for ii=1:Xnvar
+    X(:,ii) = data.(Xvnames{ii});
+end
+display(X)
 
 %%%% VAR USE %%%%
-% Choose constant and trend
-const_trend = 2;
-% Choose number of lags
-nbr_lags = 4;
+const_trend = 0; %1=constant, 2=trend; 0 = no constant and no trend;
+nbr_lags = 12;
+[VAR, VARopt] = VARmodel(X,nbr_lags,const_trend);
 
-% Estimate the VAR
-[VAR, VAR_options] = VARmodel(X,nbr_lags,const_trend);
+VARopt.vnames = Xvnames_long;
+VARopt.nsteps = 24;
+VARopt.quality = 1;
+VARopt.FigSize = [30,12];
+%VARopt.firstdate = dates(1);
+VARopt.frequency = 'm';
+VARopt.figname= 'graphics/GAS_';
+
+
 % Show estimated model parameters
-VAR_options.vnames = data.Properties.VariableNames;
+%VAR_options.vnames = data.Properties.VariableNames;
 %VARprint(VAR,VAR_options);
 
 
 %%%% STRUCTURAL VAR %%%%
 % Choose the identification scheme
-VAR_options.ident = 'oir';          % 'oir' selects a recursive scheme, (LOOK FOR OTHER SCHEMES)
+VARopt.ident = 'short'; %'short', 'long', 'iv'        % 'oir' selects a recursive scheme, (LOOK FOR OTHER SCHEMES)
+VARopt.snames = VARopt.vnames;
 % Choose the horizon for the impulse responses
-VAR_options.nsteps = 40;
+VARopt.nsteps = 6;
 % Apply the identification scheme and compute impulse responses
-[IRF,VAR] = VARir(VAR,VAR_options);
+[IRF,VAR] = VARir(VAR,VARopt);
 
 %%%% IRF %%%%
 % Compute confidence intervals using bootstrap methods
-[IRF_lower,IRF_upper,IRF_median] = VARirband(VAR,VAR_options);
+[IRF_lower,IRF_upper,IRF_median] = VARirband(VAR,VARopt);
 % Figures related options
-VAR_options.savefigs = false;
-VAR_options.quality  = 0;
+VARopt.savefigs = true;
+VARopt.quality  = 1;
 % Plot impulse response functions
-VARirplot(IRF_median,VAR_options,IRF_lower,IRF_upper);
+VARirplot(IRF_median,VARopt,IRF_lower,IRF_upper);
 
 %%%% HDComp %%%%
 % Compute historical decomposition
-HistDecomp = VARhd(VAR);
+[HD, VAR] = VARhd(VAR,VARopt);
 % Plot historical decomposition
-VARhdplot(HistDecomp,VAR_options);
+VARhdplot(HD,VARopt);
+%BarPlot(HD);
 
 
 %%%% FEVD %%%%
 % Compute forecast error variance decomposition
-[FEVD,VAR] = VARfevd(VAR,VAR_options);
+[VD, VAR] = VARvd(VAR,VARopt);
 % Compute confidence interval via bootstrap
-[FEVDINF,FEVDSUP,FEVDMED] = VARfevdband(VAR,VAR_options);
-
+[VDinf,VDsup,VDmed,VDbar] = VARvdband(VAR,VARopt);
 % Plot
-VARfevdplot(FEVDMED,VAR_options,FEVDINF,FEVDSUP);
+VARvdplot(VDbar,VARopt);
